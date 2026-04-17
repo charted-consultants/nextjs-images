@@ -1,0 +1,47 @@
+name: Deploy vl-london to Staging
+
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker buildx build --platform linux/amd64 -t vl-london:staging --load .
+          docker save vl-london:staging | gzip > vl-london-staging.tar.gz
+
+      - name: Copy image to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_STAGING_HOST }}
+          username: ${{ secrets.VPS_STAGING_USER }}
+          key: ${{ secrets.VPS_STAGING_SSH_KEY }}
+          source: "vl-london-staging.tar.gz,docker-compose.staging.yml"
+          target: "/root/docker-images/vl-london-staging/"
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_STAGING_HOST }}
+          username: ${{ secrets.VPS_STAGING_USER }}
+          key: ${{ secrets.VPS_STAGING_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            cd /root/docker-images/vl-london-staging
+            docker load < vl-london-staging.tar.gz
+            docker compose -f docker-compose.staging.yml --env-file .env down --remove-orphans 2>/dev/null || true
+            docker compose -f docker-compose.staging.yml --env-file .env up -d
+            echo "Waiting for database..."
+            until docker compose -f docker-compose.staging.yml exec -T db pg_isready -U vllondon_user > /dev/null 2>&1; do sleep 2; done
+            docker compose -f docker-compose.staging.yml exec -T app npx prisma migrate deploy
+            docker ps --filter name=vl-london --format 'table {{.Names}}\t{{.Status}}'

@@ -1,0 +1,24 @@
+version: "3.8"
+services:
+  db:
+    image: postgres:14
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vllondon_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vllondon2026_staging}
+      POSTGRES_DB: ${POSTGRES_DB:-vllondon_staging}
+    volumes:
+      - ${PGDATA_PATH:-/var/lib/vllondon_staging_pgdata}:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5456:5432"
+  app:
+    image: vl-london:staging
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vllondon_user}:${POSTGRES_PASSWORD:-vllondon2026_staging}@db:5432/${POSTGRES_DB:-vllondon_staging}
+    env_file:
+      - .env
+    ports:
+      - "0.0.0.0:${PORT:-3038}:3000"
